@@ -4,7 +4,7 @@ services:
     container_name: finguard-bot
     restart: unless-stopped
     volumes:
-      - ./data:/app/data
+      - ./data:/app/data:Z
     env_file:
       - .env
     environment:
