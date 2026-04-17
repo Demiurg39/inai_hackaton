@@ -123,7 +123,7 @@ class EvaluationResult(TypedDict):
     new_balance: float
     days_left_after: float
     fuzzy_score: float          # 0.0 = плохо → 1.0 = отлично
-    survival_probability: float # вероятность дотянуть до дохода в %
+    survival_probability: float # 0.0–1.0 fraction (multiply by 100 for display %)
     risk_level: str             # 'low', 'medium', 'high', 'critical'
     days_left_mean: float
 
@@ -270,7 +270,7 @@ def evaluate_purchase_advanced(
     else:
         survival_probability = 1.0 if new_balance >= reserve else 0.0
 
-    # Risk level
+    # Risk level (survival_probability as 0.0–1.0 fraction, same scale as fuzzy_score)
     if fuzzy_score > 0.85 and survival_probability > 0.85:
         risk_level = "low"
     elif fuzzy_score > 0.65 and survival_probability > 0.70:
@@ -280,6 +280,7 @@ def evaluate_purchase_advanced(
     else:
         risk_level = "critical"
 
+    # Approval: survival_probability is 0.0–1.0 fraction (≥0.65 = 65%)
     approved = (fuzzy_score > 0.52) and (survival_probability > 0.65)
 
     return EvaluationResult(
@@ -291,7 +292,7 @@ def evaluate_purchase_advanced(
         new_balance=new_balance,
         days_left_after=days_left_after,
         fuzzy_score=round(fuzzy_score, 3),
-        survival_probability=round(survival_probability * 100, 1),
+        survival_probability=round(survival_probability, 3),  # 0.0–1.0 fraction
         risk_level=risk_level,
         days_left_mean=days_left_after
     )

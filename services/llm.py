@@ -7,7 +7,8 @@ LLM_URL = os.getenv("LLM_URL", "")
 
 
 async def get_verdict_message(purchase: str, amount: float, verdict: str, context: dict) -> str:
-    survival = context.get("survival_probability", 50)
+    survival_raw = context.get("survival_probability", 0.5)
+    survival = int(survival_raw * 100)  # convert 0.0–1.0 fraction to % for display
     overshoot = context.get("overshoot_pct", 0)
     amt = f"{amount:,.0f}"
 
