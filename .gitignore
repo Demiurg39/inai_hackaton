@@ -4,5 +4,6 @@
 __pycache__/
 *.py[cod]
 finguard.db
+data/finguard.db
 *.log
 .worktrees/

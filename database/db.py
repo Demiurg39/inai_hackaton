@@ -1,11 +1,12 @@
 """
 database/db.py — SQLite connection pool and table initialization.
 """
+import os
 from contextlib import asynccontextmanager
 
 import aiosqlite
 
-DB_PATH = "finguard.db"
+DB_PATH = os.getenv("DB_PATH", "finguard.db")
 _db_connection: aiosqlite.Connection | None = None
 
 
