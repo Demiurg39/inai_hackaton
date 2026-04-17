@@ -262,6 +262,7 @@ def evaluate_purchase_advanced(
         remaining_days = max(days - 1, 1)
 
         daily_spends = np.random.normal(mean_daily_after, std_daily, size=(num_simulations, remaining_days))
+        daily_spends = np.maximum(daily_spends, 0.0)  # no negative spend
         total_future_spend = np.sum(daily_spends, axis=1)
 
         survives = remaining_available >= total_future_spend
