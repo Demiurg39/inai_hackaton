@@ -126,7 +126,6 @@ class EvaluationResult(TypedDict):
     fuzzy_score: float          # 0.0 = плохо → 1.0 = отлично
     survival_probability: float # 0.0–1.0 fraction (multiply by 100 for display %)
     risk_level: str             # 'low', 'medium', 'high', 'critical'
-    days_left_mean: float
 
 
 # def evaluate_purchase_advanced(
@@ -322,5 +321,4 @@ async def evaluate_purchase_advanced(
         fuzzy_score=round(fuzzy_score, 3),
         survival_probability=round(survival_probability, 3),  # 0.0–1.0 fraction
         risk_level=risk_level,
-        days_left_mean=days_left_after
     )
