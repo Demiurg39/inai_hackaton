@@ -114,6 +114,8 @@ from typing import TypedDict
 import asyncio
 import numpy as np
 
+from database.models import UserStatsSnapshot
+
 
 class EvaluationResult(TypedDict):
     limit: float
@@ -249,6 +251,7 @@ async def evaluate_purchase_advanced(
     num_simulations: int = 2000,
     daily_variation_pct: float = 0.18,
     seed: int | None = None,
+    user_stats: UserStatsSnapshot | None = None,
 ) -> EvaluationResult:
     
     today = date.today()
@@ -277,7 +280,11 @@ async def evaluate_purchase_advanced(
     # Monte Carlo (исправленный)
     if daily_limit > 0 and remaining_available > 0:
         mean_daily_after = remaining_available / days
-        std_daily = (available / days) * daily_variation_pct
+        std_daily = (
+            user_stats["std_daily_spend"]
+            if user_stats and user_stats["std_daily_spend"] > 0
+            else (available / days) * daily_variation_pct
+        )
         remaining_days = max(days - 1, 1)
 
         # Degenerate case: only 1 day left — Monte Carlo has no predictive power
@@ -298,17 +305,20 @@ async def evaluate_purchase_advanced(
         survival_probability = 0.0
 
     # Risk level (survival_probability as 0.0–1.0 fraction, same scale as fuzzy_score)
-    if fuzzy_score > 0.85 and survival_probability > 0.85:
+    risk_tol = user_stats["risk_tolerance"] if user_stats else 0.5
+    fuzzy_threshold = 0.52 - (risk_tol - 0.5) * 0.4   # 0.32–0.72
+    survival_threshold = 0.65 - (risk_tol - 0.5) * 0.5  # 0.40–0.90
+
+    if fuzzy_score > fuzzy_threshold and survival_probability > survival_threshold:
         risk_level = "low"
-    elif fuzzy_score > 0.65 and survival_probability > 0.70:
+    elif fuzzy_score > fuzzy_threshold * 0.9 and survival_probability > survival_threshold * 0.85:
         risk_level = "medium"
-    elif fuzzy_score > 0.40 and survival_probability > 0.50:
+    elif fuzzy_score > fuzzy_threshold * 0.7 and survival_probability > survival_threshold * 0.7:
         risk_level = "high"
     else:
         risk_level = "critical"
 
-    # Approval: survival_probability is 0.0–1.0 fraction (≥0.65 = 65%)
-    approved = (fuzzy_score > 0.52) and (survival_probability > 0.65)
+    approved = (fuzzy_score > fuzzy_threshold) and (survival_probability > survival_threshold)
 
     return EvaluationResult(
         limit=daily_limit,
