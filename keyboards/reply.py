@@ -8,6 +8,9 @@ main_menu = ReplyKeyboardMarkup(
     keyboard=[
         [
             KeyboardButton(text="💳 Проверить покупку"),
+            KeyboardButton(text="🎮 Что если?"),
+        ],
+        [
             KeyboardButton(text="📊 Статус"),
         ],
         [
