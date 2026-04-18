@@ -8,6 +8,7 @@ Handles:
 """
 import re
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
@@ -17,7 +18,7 @@ from services.calculator_advanced import evaluate_purchase_advanced
 from services.triton import predict_category
 from services.reason_engine import build_reason
 from services.explainer import explain
-from states.fsm import PurchaseStates
+from states.fsm import PlaygroundStates, PurchaseStates
 
 router = Router()
 
@@ -67,6 +68,65 @@ async def handle_purchase_direct(message: Message, state: FSMContext) -> None:
         return
     await _process_purchase(message)
 
+
+# ─────────────── 🎮 Playground mode ────────────────────────────────
+
+@router.message(Command("playground"))
+@router.message(F.text == "🎮 Что если?")
+async def cmd_playground(message: Message, state: FSMContext) -> None:
+    await state.set_state(PlaygroundStates.waiting_playground_input)
+    await message.answer(
+        "🎮 *Режим «А что если?»*\n\n"
+        "Напиши мне покупку — например `3000 playstation` — и я покажу тебе "
+        "мой вердикт БЕЗ сохранения транзакции и БЕЗ изменения баланса.\n\n"
+        "Это просто симуляция, чтобы понять как решение повлияет на твой прогноз.\n\n"
+        "Напиши `стоп` чтобы выйти.",
+        parse_mode="Markdown",
+        reply_markup=remove_kb,
+    )
+
+
+@router.message(PlaygroundStates.waiting_playground_input)
+async def handle_playground(message: Message, state: FSMContext) -> None:
+    text = (message.text or "").strip()
+    if text.lower() == "стоп":
+        await state.clear()
+        await message.answer("Выхожу из режима «Что если». Возвращаемся в меню.", reply_markup=main_menu)
+        return
+
+    amount, description = _parse_purchase(text)
+    if amount is None or amount <= 0:
+        await message.answer(
+            "❌ Не вижу сумму. Напиши например `3000 playstation`",
+            parse_mode="Markdown",
+            reply_markup=main_menu,
+        )
+        await state.clear()
+        return
+
+    user_id = message.from_user.id
+    user = await get_user(user_id)
+    if not user:
+        await message.answer("Сначала /start")
+        await state.clear()
+        return
+
+    balance = user["balance"]
+    reserve = user["reserve"]
+    income_date = user["next_income_date"]
+
+    result = await evaluate_purchase_advanced(amount, balance, reserve, income_date)
+
+    category = await predict_category(description)
+    reason = build_reason(amount, result, category or "другое")
+    verdict_text = explain(reason, amount, description)
+
+    await message.answer(
+        f"🎮 *Результат симуляции:*\n\n{verdict_text}\n\n_Это только симуляция. Баланс не изменился._",
+        parse_mode="Markdown",
+        reply_markup=main_menu,
+    )
+    await state.clear()
 
 # ─────────────────────────── Core logic ───────────────────────────
 
