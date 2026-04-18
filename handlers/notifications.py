@@ -48,6 +48,8 @@ async def _send_notification(user_id: int, first_name: str, period_available: fl
     balance = user["balance"]
     reserve = user["reserve"]
     income_date = user["next_income_date"]
+    if not income_date:
+        return ""
     days = max((date.fromisoformat(income_date) - date.today()).days, 0)
     available = max(balance - reserve, 0.0)
     daily_limit = round(available / days, 2) if days > 0 else 0.0

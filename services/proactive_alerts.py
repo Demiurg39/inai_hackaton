@@ -22,7 +22,10 @@ def check_alerts(user: dict, recurring_spends: list[dict]) -> list[Alert]:
     alerts: list[Alert] = []
     balance = user["balance"]
     reserve = user["reserve"]
-    income_date = date.fromisoformat(user["next_income_date"])
+    income_date_str = user.get("next_income_date", "")
+    if not income_date_str:
+        return alerts
+    income_date = date.fromisoformat(income_date_str)
     today = date.today()
     days_until = max((income_date - today).days, 0)
     available = max(balance - reserve, 0.0)
@@ -49,7 +52,10 @@ def check_alerts(user: dict, recurring_spends: list[dict]) -> list[Alert]:
     for s in recurring_spends:
         if s.get("confidence", 0) < 0.5:
             continue
-        next_exp = date.fromisoformat(s["next_expected"])
+        next_exp_str = s.get("next_expected", "")
+        if not next_exp_str:
+            continue
+        next_exp = date.fromisoformat(next_exp_str)
         days_to_exp = (next_exp - today).days
         if 0 <= days_to_exp <= 7 and s["amount"] > available:
             alerts.append(Alert(

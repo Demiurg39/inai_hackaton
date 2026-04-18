@@ -253,8 +253,9 @@ async def evaluate_purchase_advanced(
     seed: int | None = None,
     user_stats: UserStatsSnapshot | None = None,
 ) -> EvaluationResult:
-    
     today = date.today()
+    if not next_income_date:
+        raise ValueError("next_income_date is required")
     income_date = date.fromisoformat(next_income_date)
     
     days = max((income_date - today).days, 1)
