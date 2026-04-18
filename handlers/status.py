@@ -7,7 +7,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from database.models import get_user
+from database.models import get_user, get_user_stats, get_recurring_spends
 from keyboards.reply import main_menu
 from services.calculator import evaluate_purchase
 
@@ -67,6 +67,31 @@ async def cmd_status(message: Message) -> None:
 
     forecast = _forecast(available, average_spend, days)
 
+    user_stats = await get_user_stats(user_id)
+    recurring = await get_recurring_spends(user_id)
+
+    # Show learned spend pattern
+    if user_stats and user_stats["avg_daily_spend"] > 0:
+        stats_lines = (
+            f"  📊 Твой паттерн: `{user_stats['avg_daily_spend']:,.0f}` "
+            f"± `{user_stats['std_daily_spend']:,.0f}` /день"
+        )
+    else:
+        stats_lines = ""
+
+    # Show recurring spends
+    recurring_lines = ""
+    for r in recurring:
+        try:
+            next_dt = date.fromisoformat(r["next_expected"])
+            days_until = (next_dt - today).days
+            recurring_lines += (
+                f"\n  🔁 `{r['avg_amount']:,.0f}` / `{r['category']}` "
+                f"— через `{days_until}` дн. (дов.{r['confidence']:.0%})"
+            )
+        except (ValueError, TypeError, KeyError):
+            pass
+
     await message.answer(
         f"📊 *Твой финансовый статус*\n\n"
         f"  💰 Баланс:        `{balance:,.2f}`\n"
@@ -76,7 +101,9 @@ async def cmd_status(message: Message) -> None:
         f"  📅 До зарплаты:   `{days}` дн. "
         f"(_{ income_date.strftime('%d.%m.%Y')}_)\n\n"
         f"💚 Финансовое здоровье:\n{bar}\n\n"
-        f"{forecast}",
+        f"{forecast}"
+        f"{stats_lines}"
+        f"{recurring_lines}",
         parse_mode="Markdown",
         reply_markup=main_menu,
     )
