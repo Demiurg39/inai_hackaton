@@ -15,7 +15,8 @@ async def init_db() -> None:
     global _db_connection
     _db_connection = await aiosqlite.connect(DB_PATH)
     _db_connection.row_factory = aiosqlite.Row
-    
+
+    # --- Base users table ---
     await _db_connection.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id          INTEGER PRIMARY KEY,
@@ -27,13 +28,10 @@ async def init_db() -> None:
             created_at       TEXT    NOT NULL DEFAULT ''
         )
     """)
-    # Non-destructive migration for existing DBs
-    try:
-        await _db_connection.execute(
-            "ALTER TABLE users ADD COLUMN period_available REAL NOT NULL DEFAULT 0"
-        )
-    except Exception:
-        pass  # Column already exists
+    # --- Non-destructive migrations for existing DBs ---
+    _migrate_users(_db_connection)
+
+    # --- Transactions table ---
     await _db_connection.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +42,55 @@ async def init_db() -> None:
             created_at  TEXT    NOT NULL DEFAULT ''
         )
     """)
+
+    # --- Personalized stats: user_category_stats ---
+    await _db_connection.execute("""
+        CREATE TABLE IF NOT EXISTS user_category_stats (
+            user_id         INTEGER NOT NULL,
+            category        TEXT    NOT NULL,
+            avg_amount      REAL    NOT NULL DEFAULT 0,
+            tx_count        INTEGER NOT NULL DEFAULT 0,
+            last_seen_at    TEXT    NOT NULL DEFAULT '',
+            PRIMARY KEY (user_id, category)
+        )
+    """)
+
+    # --- Personalized stats: user_recurring_spends ---
+    await _db_connection.execute("""
+        CREATE TABLE IF NOT EXISTS user_recurring_spends (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         INTEGER NOT NULL,
+            category        TEXT    NOT NULL,
+            avg_amount      REAL    NOT NULL DEFAULT 0,
+            interval_days   INTEGER NOT NULL DEFAULT 30,
+            last_amount     REAL    NOT NULL DEFAULT 0,
+            last_date       TEXT    NOT NULL DEFAULT '',
+            confidence      REAL    NOT NULL DEFAULT 0,
+            next_expected   TEXT    NOT NULL DEFAULT ''
+        )
+    """)
+
     await _db_connection.commit()
+
+
+def _migrate_users(conn: aiosqlite.Connection) -> None:
+    """Add missing columns to users table (non-destructive migrations)."""
+    _add_column(conn, "period_available", "REAL NOT NULL DEFAULT 0")
+    _add_column(conn, "period_start_date", "TEXT NOT NULL DEFAULT ''")
+    # --- Personalized stats columns ---
+    _add_column(conn, "avg_daily_spend", "REAL NOT NULL DEFAULT 0")
+    _add_column(conn, "std_daily_spend", "REAL NOT NULL DEFAULT 0")
+    _add_column(conn, "spend_velocity", "REAL NOT NULL DEFAULT 1.0")
+    _add_column(conn, "risk_tolerance", "REAL NOT NULL DEFAULT 0.5")
+    _add_column(conn, "last_computed_at", "TEXT NOT NULL DEFAULT ''")
+
+
+def _add_column(conn: aiosqlite.Connection, column: str, typedecl: str) -> None:
+    """Add a column to users table if it doesn't exist."""
+    try:
+        conn.execute(f"ALTER TABLE users ADD COLUMN {column} {typedecl}")
+    except Exception:
+        pass  # Column already exists
 
 
 async def close_db() -> None:
@@ -63,46 +109,3 @@ async def get_db():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         yield db
-
-
-async def init_db() -> None:
-    """Create tables if they don't exist. Called once on bot startup."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id          INTEGER PRIMARY KEY,
-                balance          REAL    NOT NULL DEFAULT 0,
-                reserve          REAL    NOT NULL DEFAULT 0,
-                next_income_date TEXT    NOT NULL DEFAULT '',
-                period_available REAL    NOT NULL DEFAULT 0,
-                onboarded        INTEGER NOT NULL DEFAULT 0,
-                created_at       TEXT    NOT NULL DEFAULT ''
-            )
-        """)
-        # Non-destructive migration for existing DBs
-        try:
-            await db.execute(
-                "ALTER TABLE users ADD COLUMN period_available REAL NOT NULL DEFAULT 0"
-            )
-        except Exception:
-            pass  # Column already exists
-            
-        try:
-            await db.execute(
-                "ALTER TABLE users ADD COLUMN period_start_date TEXT NOT NULL DEFAULT ''"
-            )
-        except Exception:
-            pass  # Column already exists
-            
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS transactions (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id     INTEGER NOT NULL,
-                amount      REAL    NOT NULL,
-                description TEXT,
-                verdict     TEXT,
-                created_at  TEXT    NOT NULL DEFAULT ''
-            )
-        """)
-        await db.commit()
