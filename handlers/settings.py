@@ -272,6 +272,13 @@ async def cmd_history(message: Message) -> None:
     )
 
 
+@router.callback_query(F.data == "main_menu")
+async def cb_main_menu(call: CallbackQuery, state: FSMContext) -> None:
+    await call.answer()
+    await state.clear()
+    await call.message.answer("🏠 Главное меню:", reply_markup=main_menu)
+
+
 # ─────────────────────────── Helpers ──────────────────────────────
 
 def _parse_positive(text: str) -> float | None:
