@@ -254,3 +254,129 @@ async def upsert_recurring_spend(
              last_date, confidence, next_expected),
         )
         await db.commit()
+
+
+# ─────────────────────────── COMPUTE USER STATS ─────────────────────
+
+
+async def compute_user_stats(user_id: int) -> UserStatsSnapshot:
+    """
+    Compute personalized spending signals from transaction history.
+
+    Falls back to global defaults if user has < 5 approved transactions.
+    """
+    from datetime import timedelta
+
+    async with get_db() as db:
+        async with db.execute(
+            """SELECT created_at, amount FROM transactions
+            WHERE user_id = ? AND verdict = 'approved'
+            ORDER BY created_at DESC LIMIT 90""",
+            (user_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    if len(rows) < 5:
+        return UserStatsSnapshot(
+            avg_daily_spend=0.0,
+            std_daily_spend=0.0,
+            spend_velocity=1.0,
+            risk_tolerance=0.5,
+            last_computed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    # Group by day
+    daily_totals: dict[str, float] = {}
+    for row in rows:
+        day = row["created_at"][:10]
+        daily_totals[day] = daily_totals.get(day, 0.0) + row["amount"]
+
+    amounts = sorted(daily_totals.values())
+    n = len(amounts)
+    avg = sum(amounts) / n
+    std = (
+        (sum((x - avg) ** 2 for x in amounts) / n) ** 0.5
+        if n > 1 else 0.0
+    )
+
+    # Detect recurring patterns
+    recurring = _detect_recurring(rows)
+    for r in recurring:
+        await upsert_recurring_spend(
+            user_id,
+            r["category"],
+            r["avg_amount"],
+            r["interval_days"],
+            r["last_amount"],
+            r["last_date"],
+            r["confidence"],
+            r["next_expected"],
+        )
+
+    snapshot = UserStatsSnapshot(
+        avg_daily_spend=round(avg, 2),
+        std_daily_spend=round(std, 2),
+        spend_velocity=1.0,
+        risk_tolerance=0.5,
+        last_computed_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    await upsert_user_stats(
+        user_id,
+        avg=snapshot["avg_daily_spend"],
+        std=snapshot["std_daily_spend"],
+        velocity=snapshot["spend_velocity"],
+        tolerance=snapshot["risk_tolerance"],
+    )
+
+    return snapshot
+
+
+def _detect_recurring(transactions: list[aiosqlite.Row]) -> list[dict]:
+    """Group transactions by approximate amount and interval to find recurring patterns."""
+    from datetime import timedelta
+
+    # Sort by date
+    tx_list = sorted(transactions, key=lambda r: r["created_at"])
+    recurring = []
+    # Group by category (description)
+    by_category: dict[str, list[aiosqlite.Row]] = {}
+    for tx in tx_list:
+        cat = tx.get("description", "other")[:20]
+        by_category.setdefault(cat, []).append(tx)
+
+    for cat, txs in by_category.items():
+        if len(txs) < 3:
+            continue
+        # Check intervals between consecutive transactions
+        amounts = [t["amount"] for t in txs]
+        for ref_amt in set(amounts):
+            matching = [t for t in txs if abs(t["amount"] - ref_amt) / ref_amt < 0.1]
+            if len(matching) < 3:
+                continue
+            # Compute intervals
+            intervals = []
+            for i in range(1, len(matching)):
+                d1 = datetime.fromisoformat(matching[i]["created_at"])
+                d0 = datetime.fromisoformat(matching[i - 1]["created_at"])
+                intervals.append((d0 - d1).days)
+            if not intervals:
+                continue
+            avg_interval = sum(intervals) / len(intervals)
+            if 25 <= avg_interval <= 35:  # monthly
+                interval_days = 30
+            elif 6 <= avg_interval <= 8:  # weekly
+                interval_days = 7
+            else:
+                continue
+            recurring.append({
+                "category": cat,
+                "avg_amount": ref_amt,
+                "interval_days": interval_days,
+                "last_amount": matching[-1]["amount"],
+                "last_date": matching[-1]["created_at"],
+                "confidence": min(len(matching) / 10, 1.0),
+                "next_expected": (datetime.fromisoformat(matching[-1]["created_at"])
+                                   + timedelta(days=interval_days)).isoformat(),
+            })
+    return recurring
